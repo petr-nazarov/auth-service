@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  auth-db:
+    image: mongo
+    restart: always
+    volumes:
+      - authData:/data/db
+    ports:
+      - ${DB_PORT}:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${DB_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD}
+volumes:
+  authData:
+    external: true
+
+# docker volume create --name=authData
