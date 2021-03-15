@@ -1,8 +1,11 @@
 // import { log } from './logService';
+const moment = require('moment').default || require('moment');
 import { isNil } from 'ramda';
 import GoogleOAuth2Repository from '../repositories/http/GoogleOAuth2Repository';
 import UserRepository from '../repositories/dataBase/UserRepository';
 import AuthenticationTokenRepository from '../repositories/dataBase/AuthenticationTokenRepository';
+import AuthenticationError from '../errors/AuthenticationError';
+import NotFoundError from '../errors/NotFoundError';
 // constructors
 const googleOAuth2Repository = new GoogleOAuth2Repository();
 const userRepository = new UserRepository();
@@ -27,21 +30,18 @@ const createOrFindUser = async (email: string): Promise<{ email: string; address
   return dbUserData;
 };
 
-const registerOrLoginUserAndProvideAuthenticationTokens = async (googleOAuth2Code: string) => {
-  const googleUserData = await googleOAuth2Repository.getUserInfo(googleOAuth2Code);
-  const dbUser = await createOrFindUser(googleUserData.email);
-
+const createTokenPair = async (userId: string) => {
   const dbAccessToken = await authenticationTokenRepository.create({
     token: generateTokenStr(),
     type: 'access_token',
     startDate: new Date(),
-    user: dbUser._id,
+    user: userId,
   });
   const dbRefreshToken = await authenticationTokenRepository.create({
     token: generateTokenStr(),
     type: 'refresh_token',
     startDate: new Date(),
-    user: dbUser._id,
+    user: userId,
   });
 
   return {
@@ -50,6 +50,35 @@ const registerOrLoginUserAndProvideAuthenticationTokens = async (googleOAuth2Cod
   };
 };
 
+const registerOrLoginUserAndProvideAuthenticationTokens = async (googleOAuth2Code: string) => {
+  const googleUserData = await googleOAuth2Repository.getUserInfo(googleOAuth2Code);
+  const dbUser = await createOrFindUser(googleUserData.email);
+  await createTokenPair(dbUser._id);
+};
+
+const refreshToken = async (refreshToken: string) => {
+  console.log('aaa');
+  const token = await authenticationTokenRepository.findOneOrNull({ token: refreshToken, type: 'refresh_token' });
+
+  if (!token) {
+    throw new AuthenticationError('Refresh Token Not Found');
+  }
+  const now = moment(new Date());
+  const tokenDate = moment(token.startDate);
+
+  if (now.diff(tokenDate) > 1000 * 60 * 60 * 24 * 7) {
+    throw new AuthenticationError('Authentication Token expired');
+  }
+
+  const user = await userRepository.show(token.user);
+  if (!user) {
+    throw new NotFoundError(`user with id = ${token.user}`, 'database');
+  }
+
+  return await createTokenPair(user._id);
+};
+
 export default {
   registerOrLoginUserAndProvideAuthenticationTokens,
+  refreshToken,
 };

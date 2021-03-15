@@ -14,6 +14,7 @@ const userController = new UserController();
 router.get('/health', async (ctx: CTX) => healthCheckController.index(ctx));
 router.get('/auth/google/redirect', async (ctx: CTX) => authenticationController.googleAuthRedirected(ctx));
 router.get('/auth/google', async (ctx: CTX) => authenticationController.googleAuth(ctx));
+router.post('/auth/refresh', async (ctx: CTX) => authenticationController.refreshToken(ctx));
 router.get('/user', async (ctx: CTX) => userController.getUserInfo(ctx));
 router.post('/user', async (ctx: CTX) => userController.updateUserAddress(ctx));
 
