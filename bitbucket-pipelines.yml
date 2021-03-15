@@ -1,0 +1,142 @@
+### Variables:
+###### Repository:  AWS_KEY,AWS_ECS_REGISTRY, AWS_SECRET, IMAGE, SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT, POSTMAN_API_KEY, POSTMAN_COLLECTION_ID, POSTMAN_ENVIRONMENT_ID
+###### Deployment:  AWS_CLUSTER_NAME, AWS_DEFAULT_REGION, K8S_CONTAINER, K8S_DEPLOYMENT,
+################## ENV, FRED_API_KEY
+
+definitions:
+  steps:
+    - step: &Build
+        name: Build from source code
+        image: sandrokeil/typescript
+        caches:
+          - node
+        script:
+          - npm config set unsafe-perm true
+          - cp build.env .env
+          - npm install
+          - tsc
+          # sentry versioning 
+          - export BUILD_VERSION=$BITBUCKET_BUILD_NUMBER
+          - ./node_modules/.bin/sentry-cli releases new -p ${SENTRY_PROJECT} ${BUILD_VERSION}
+          - ./node_modules/.bin/sentry-cli releases set-commits --auto ${BUILD_VERSION}
+        artifacts:
+          - dist/**
+          - node_modules/**
+          - .env
+          - index.js
+    - step: &UnitTest
+        name: Run unit tests
+        image: node:alpine
+        script:
+          # - cp -R src/tests/mock-data/*.json dist/tests/mock-data
+          - npm run test-dist
+          - rm -rf dist/tests
+        artifacts:
+          - dist/**
+          - node_modules/**
+          - index.js
+    - step: &APITest
+        name: Running API tests
+        deployment: Test
+        image: node:alpine
+        caches:
+        - node
+        script:
+          - npm i -g newman
+          - npm install -g newman-reporter-htmlextra
+          - cp build.env .env
+          - echo "" >> .env
+          - echo "FRED_API_KEY=${FRED_API_KEY}" >> .env
+          - echo "EVERYSK_ADAPTER_URL=${EVERYSK_ADAPTER_URL}" >> .env
+          - cat .env
+          - node index.js &> /dev/null &
+          # clear DB and create Administrator
+          - node dist/scripts/spinUp.js &> /dev/null &
+          - sleep 5
+          - newman run https://api.getpostman.com/collections/${POSTMAN_COLLECTION_ID}\?apikey\=${POSTMAN_API_KEY} -e https://api.getpostman.com/environments/${POSTMAN_ENVIRONMENT_ID}\?apikey\=${POSTMAN_API_KEY} -r htmlextra
+          - sleep 5
+          - killall node
+          - rm -rf dist/tests
+        artifacts:
+          - dist/**
+          - node_modules/**
+          - index.js
+          - newman/**
+    - step: &BuildAndPushDockerImage
+          name: Build and publish docker image
+          image: amazon/aws-cli
+          caches:
+          - docker
+          script:
+            - rm -rf newman
+            - cp build.env .env
+            - export BUILD_VERSION=$BITBUCKET_BUILD_NUMBER
+            - echo $BUILD_VERSION
+            # Loging in to AWS
+            - aws configure set aws_access_key_id "${AWS_KEY}"
+            - aws configure set aws_secret_access_key "${AWS_SECRET}"
+            - aws configure set default.region eu-west-1
+            - aws ecr get-login-password > credantials
+            - cat credantials | docker login --username AWS --password-stdin ${AWS_ECS_REGISTRY}
+            - rm credantials
+            # Building
+            - docker build . -t ${IMAGE}:${BUILD_VERSION}
+            - docker push ${IMAGE}:${BUILD_VERSION}
+          services:
+            - docker
+    - step: &Deploy
+          name: Deploy
+          deployment: Staging
+          script:
+            # Get vars
+            - if [ "$BUILD_VERSION" > 0 ]; then echo "Using predefined BUILD_VERSION"; else export BUILD_VERSION=${BITBUCKET_BUILD_NUMBER}; fi
+            - echo $BUILD_VERSION
+            # Deploy image
+            - echo "Updating an image"
+            - pipe: atlassian/aws-eks-kubectl-run:1.2.3
+              variables:
+                AWS_ACCESS_KEY_ID: $AWS_KEY
+                AWS_SECRET_ACCESS_KEY: $AWS_SECRET
+                AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+                CLUSTER_NAME: $AWS_CLUSTER_NAME
+                RESOURCE_PATH: '.'
+                KUBECTL_COMMAND: '--record deployment/${K8S_DEPLOYMENT} set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${IMAGE}:${BUILD_VERSION}'
+            # Set variables
+            - echo "Updating variables"
+            - pipe: atlassian/aws-eks-kubectl-run:1.2.3
+              variables:
+                AWS_ACCESS_KEY_ID: $AWS_KEY
+                AWS_SECRET_ACCESS_KEY: $AWS_SECRET
+                AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+                CLUSTER_NAME: $AWS_CLUSTER_NAME
+                RESOURCE_PATH: '.'
+                KUBECTL_COMMAND: 'set env deployment/${K8S_DEPLOYMENT} ENV=${ENV} BUILD_VERSION=${BUILD_VERSION} FRED_API_KEY=${FRED_API_KEY} EVERYSK_ADAPTER_URL=${EVERYSK_ADAPTER_URL}'
+            # Follow deployment process
+            - echo "Following deployment process"
+            - pipe: atlassian/aws-eks-kubectl-run:1.2.3
+              variables:
+                AWS_ACCESS_KEY_ID: $AWS_KEY
+                AWS_SECRET_ACCESS_KEY: $AWS_SECRET
+                AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+                CLUSTER_NAME: $AWS_CLUSTER_NAME
+                RESOURCE_PATH: '.'
+                KUBECTL_COMMAND: 'rollout status deployment ${K8S_DEPLOYMENT}'
+pipelines:
+  branches:
+    master:
+      - step: *Build
+      - step: *UnitTest
+      - step: *APITest
+      - step: *BuildAndPushDockerImage
+      - step: 
+          name: "Deploy to Staging"
+          deployment: Staging
+          <<: *Deploy
+  custom:
+    deploy-to-production:
+      - variables:
+        - name: BUILD_VERSION
+      - step:
+          name: "Deploy to Production"
+          deployment: Production
+          <<: *Deploy
