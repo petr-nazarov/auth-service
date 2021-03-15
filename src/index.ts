@@ -8,6 +8,7 @@ import * as bodyParser from 'koa-bodyparser';
 import router from './router';
 import db from './db';
 import errorMiddleware from './middleware/ErrorMiddleware';
+import authMiddleware from './middleware/AuthMiddleware';
 import { CTX } from './interfaces/KoaInterfaces';
 
 const app = new Koa();
@@ -15,6 +16,7 @@ app.use(async (ctx: CTX, next) => errorMiddleware(ctx, next));
 app.use(json());
 app.use(logger());
 app.use(bodyParser());
+app.use(async (ctx: CTX, next) => authMiddleware(ctx, next));
 
 app.use(router.routes());
 
