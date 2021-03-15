@@ -1,3 +1,16 @@
+# Main TODO
+```
+cp .env.example .env and fill in the keys
+docker volume create --name=authDat
+docker-compose up -d
+yarn install
+yarn dev
+visit http://localhost:8080/auth/google
+x
+```
+
+
+
 ## Development
 
 ```
