@@ -2,12 +2,14 @@
 const moment = require('moment').default || require('moment');
 import { isNil } from 'ramda';
 import GoogleOAuth2Repository from '../repositories/http/GoogleOAuth2Repository';
+import FacebookOAuth2Repository from '../repositories/http/FacebookOAuth2Repository';
 import UserRepository from '../repositories/dataBase/UserRepository';
 import AuthenticationTokenRepository from '../repositories/dataBase/AuthenticationTokenRepository';
 import AuthenticationError from '../errors/AuthenticationError';
 import NotFoundError from '../errors/NotFoundError';
 // constructors
 const googleOAuth2Repository = new GoogleOAuth2Repository();
+const facebookOAuth2Repository = new FacebookOAuth2Repository();
 const userRepository = new UserRepository();
 const authenticationTokenRepository = new AuthenticationTokenRepository();
 
@@ -50,14 +52,19 @@ const createTokenPair = async (userId: string) => {
   };
 };
 
-const registerOrLoginUserAndProvideAuthenticationTokens = async (googleOAuth2Code: string) => {
+const registerOrLoginUserAndProvideAuthenticationTokensFromGoogle = async (googleOAuth2Code: string) => {
   const googleUserData = await googleOAuth2Repository.getUserInfo(googleOAuth2Code);
   const dbUser = await createOrFindUser(googleUserData.email);
   await createTokenPair(dbUser._id);
 };
+const registerOrLoginUserAndProvideAuthenticationTokensFromFacebook = async (facebookOAuth2Code: string) => {
+  const accessToken = await facebookOAuth2Repository.getAccessTokenFromCode(facebookOAuth2Code);
+  const facebookUser = await facebookOAuth2Repository.getFacebookUserData(accessToken);
+  const dbUser = await createOrFindUser(facebookUser.email);
+  return await createTokenPair(dbUser._id);
+};
 
 const refreshToken = async (refreshToken: string) => {
-  console.log('aaa');
   const token = await authenticationTokenRepository.findOneOrNull({ token: refreshToken, type: 'refresh_token' });
 
   if (!token) {
@@ -79,6 +86,7 @@ const refreshToken = async (refreshToken: string) => {
 };
 
 export default {
-  registerOrLoginUserAndProvideAuthenticationTokens,
+  registerOrLoginUserAndProvideAuthenticationTokensFromGoogle,
+  registerOrLoginUserAndProvideAuthenticationTokensFromFacebook,
   refreshToken,
 };

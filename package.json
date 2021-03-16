@@ -35,6 +35,7 @@
     "passport": "^0.4.1",
     "passport-google-oauth": "^2.0.0",
     "passport-google-oauth20": "^2.0.0",
+    "query-string": "^6.14.1",
     "ramda": "^0.27.1",
     "sentry": "^0.1.2",
     "ts-jest": "^26.5.1",
